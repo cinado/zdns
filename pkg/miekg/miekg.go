@@ -27,6 +27,7 @@ import (
 
 	"github.com/zmap/dns"
 	"github.com/zmap/go-iptree/blacklist"
+	"github.com/zmap/zdns/pkg/doh"
 	"github.com/zmap/zdns/pkg/zdns"
 )
 
@@ -176,9 +177,12 @@ func (s *GlobalLookupFactory) MakeRoutineFactory(threadID int) (zdns.RoutineLook
 }
 
 type RoutineLookupFactory struct {
-	Factory              *GlobalLookupFactory
-	Client               *dns.Client
-	TCPClient            *dns.Client
+	Factory   *GlobalLookupFactory
+	Client    *dns.Client
+	TCPClient *dns.Client
+	// START OF EXTENSION
+	DOHClient *doh.DOHClient
+	// END OF EXTENSION
 	Retries              int
 	MaxDepth             int
 	Timeout              time.Duration
@@ -207,7 +211,12 @@ func (s *RoutineLookupFactory) Initialize(c *zdns.GlobalConf) {
 		panic("null factory")
 	}
 	s.LocalAddr = s.Factory.RandomLocalAddr()
-
+	// START OF EXTENSION
+	if c.DOHEnabled {
+		s.DOHClient = new(doh.DOHClient)
+		s.DOHClient.Initialize(s.Timeout)
+	}
+	// END OF EXTENSION
 	if !c.TCPOnly {
 		s.Client = new(dns.Client)
 		s.Client.Timeout = s.Timeout
@@ -287,7 +296,8 @@ func (s *Lookup) Initialize(nameServer string, dnsType uint16, dnsClass uint16, 
 }
 
 func (s *Lookup) doLookup(q Question, nameServer string, recursive bool) (Result, zdns.Status, error) {
-	return DoLookupWorker(s.Factory.Client, s.Factory.TCPClient, s.Conn, q, nameServer, recursive, s.Factory.EdnsOptions, s.Factory.Dnssec, s.Factory.Factory.GlobalConf.CheckingDisabled)
+	//EXTENSION: added DOHClient
+	return DoLookupWorker(s.Factory.Client, s.Factory.TCPClient, s.Factory.DOHClient, s.Conn, q, nameServer, recursive, s.Factory.EdnsOptions, s.Factory.Dnssec, s.Factory.Factory.GlobalConf.CheckingDisabled)
 }
 
 // CheckTxtRecords common function for all modules based on search in TXT record
@@ -317,7 +327,7 @@ func (s *Lookup) FindTxtRecord(res Result) (string, error) {
 }
 
 // Expose the inner logic so other tools can use it
-func DoLookupWorker(udp *dns.Client, tcp *dns.Client, conn *dns.Conn, q Question, nameServer string, recursive bool, ednsOptions []dns.EDNS0, dnssec bool, checkingDisabled bool) (Result, zdns.Status, error) {
+func DoLookupWorker(udp *dns.Client, tcp *dns.Client, doh *doh.DOHClient, conn *dns.Conn, q Question, nameServer string, recursive bool, ednsOptions []dns.EDNS0, dnssec bool, checkingDisabled bool) (Result, zdns.Status, error) {
 	res := Result{Answers: []interface{}{}, Authorities: []interface{}{}, Additional: []interface{}{}}
 	res.Resolver = nameServer
 
@@ -335,26 +345,34 @@ func DoLookupWorker(udp *dns.Client, tcp *dns.Client, conn *dns.Conn, q Question
 
 	var r *dns.Msg
 	var err error
-	if udp != nil {
-		res.Protocol = "udp"
-		if conn != nil {
-			dst, _ := net.ResolveUDPAddr("udp", nameServer)
-			r, _, err = udp.ExchangeWithConnTo(m, conn, dst)
-		} else {
-			r, _, err = udp.Exchange(m, nameServer)
-		}
-		// if record comes back truncated, but we have a TCP connection, try again with that
-		if r != nil && (r.Truncated || r.Rcode == dns.RcodeBadTrunc) {
-			if tcp != nil {
-				return DoLookupWorker(nil, tcp, conn, q, nameServer, recursive, ednsOptions, dnssec, checkingDisabled)
-			} else {
-				return res, zdns.STATUS_TRUNCATED, err
-			}
-		}
+
+	// doh client will only be created if flag is set to true
+	if doh != nil {
+		res.Protocol = "doh"
+		r, _, err = doh.ExchangeDOH(m, nameServer)
 	} else {
-		res.Protocol = "tcp"
-		r, _, err = tcp.Exchange(m, nameServer)
+		if udp != nil {
+			res.Protocol = "udp"
+			if conn != nil {
+				dst, _ := net.ResolveUDPAddr("udp", nameServer)
+				r, _, err = udp.ExchangeWithConnTo(m, conn, dst)
+			} else {
+				r, _, err = udp.Exchange(m, nameServer)
+			}
+			// if record comes back truncated, but we have a TCP connection, try again with that
+			if r != nil && (r.Truncated || r.Rcode == dns.RcodeBadTrunc) {
+				if tcp != nil {
+					return DoLookupWorker(nil, tcp, doh, conn, q, nameServer, recursive, ednsOptions, dnssec, checkingDisabled)
+				} else {
+					return res, zdns.STATUS_TRUNCATED, err
+				}
+			}
+		} else {
+			res.Protocol = "tcp"
+			r, _, err = tcp.Exchange(m, nameServer)
+		}
 	}
+
 	if err != nil || r == nil {
 		if nerr, ok := err.(net.Error); ok {
 			if nerr.Timeout() {

@@ -130,13 +130,17 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 		} else {
 			ns = strings.Split(*servers_string, ",")
 		}
-		for i, s := range ns {
-			nsWithPort, err := util.AddDefaultPortToDNSServerName(s)
-			if err != nil {
-				log.Fatal("Unable to parse nameserver: ", err)
+		// Extension
+		if !gc.DOHEnabled {
+			for i, s := range ns {
+				nsWithPort, err := util.AddDefaultPortToDNSServerName(s)
+				if err != nil {
+					log.Fatal("Unable to parse nameserver: ", err)
+				}
+				ns[i] = nsWithPort
 			}
-			ns[i] = nsWithPort
 		}
+
 		gc.NameServers = ns
 		gc.NameServersSpecified = true
 	}
@@ -236,6 +240,10 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 
 	if gc.UDPOnly && gc.TCPOnly {
 		log.Fatal("TCP Only and UDP Only are conflicting")
+	}
+	// EXTENSION
+	if (gc.DOHEnabled && gc.UDPOnly) || (gc.DOHEnabled && gc.TCPOnly) {
+		log.Fatal("DOH Enabled can't be used together with TCP Only or UDP Only")
 	}
 	if gc.NameServerMode && gc.AlexaFormat {
 		log.Fatal("Alexa mode is incompatible with name server mode")

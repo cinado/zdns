@@ -61,13 +61,11 @@ func (base *BaseLookup) DoLookup(name string, class uint16) (interface{}, Status
 }
 
 // one RoutineLookupFactory per goroutine =====================================
-//
 type RoutineLookupFactory interface {
 	MakeLookup() (Lookup, error)
 }
 
 // one RoutineLookupFactory per execution =====================================
-//
 type GlobalLookupFactory interface {
 	// Capture the values of cobra/viper flags and add them to the
 	// global factory as appropriate.
