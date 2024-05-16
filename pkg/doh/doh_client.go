@@ -15,12 +15,16 @@ import (
 const dohMediaType string = "application/dns-message"
 
 type DOHClient struct {
-	httpClient *http.Client
-	endpoint   url.URL
+	httpClient     *http.Client
+	endpoint       url.URL
+	Timeout        time.Duration
+	RetriedRequest bool
 }
 
 // DOH client must be initialized before using it
 func (d *DOHClient) Initialize(timeout time.Duration) {
+	d.Timeout = timeout
+	d.RetriedRequest = false
 	d.httpClient = &http.Client{
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
@@ -35,6 +39,11 @@ func (d *DOHClient) Initialize(timeout time.Duration) {
 		},
 		Timeout: timeout,
 	}
+}
+
+func (d *DOHClient) SetTimeout(timeout time.Duration) {
+	d.Timeout = timeout
+	d.httpClient.Timeout = timeout
 }
 
 // Supply set_endpoint with resolver hostname, path is set for POST requests

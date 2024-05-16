@@ -350,6 +350,15 @@ func DoLookupWorker(udp *dns.Client, tcp *dns.Client, doh *doh.DOHClient, conn *
 	if doh != nil {
 		res.Protocol = "doh"
 		r, _, err = doh.ExchangeDOH(m, nameServer)
+		if r != nil && (r.Truncated || r.Rcode == dns.RcodeBadTrunc) {
+			if !doh.RetriedRequest {
+				doh.RetriedRequest = true
+				return DoLookupWorker(udp, tcp, doh, conn, q, nameServer, recursive, ednsOptions, dnssec, checkingDisabled)
+			} else {
+				doh.RetriedRequest = false
+				return res, zdns.STATUS_TRUNCATED, err
+			}
+		}
 	} else {
 		if udp != nil {
 			res.Protocol = "udp"
@@ -452,10 +461,15 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 	s.VerboseLog(1, "****WIRE LOOKUP*** ", dns.TypeToString[q.Type], " ", q.Name, " ", nameServer)
 
 	var origTimeout time.Duration
+	var origDOHTimeout time.Duration
+
 	if s.Factory.Client != nil {
 		origTimeout = s.Factory.Client.Timeout
 	} else {
 		origTimeout = s.Factory.TCPClient.Timeout
+	}
+	if s.Factory.DOHClient != nil {
+		origDOHTimeout = s.Factory.DOHClient.Timeout
 	}
 	for i := 0; i <= s.Factory.Retries; i++ {
 		result, status, err := s.doLookup(q, nameServer, recursive)
@@ -466,6 +480,9 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 			if s.Factory.TCPClient != nil {
 				s.Factory.TCPClient.Timeout = origTimeout
 			}
+			if s.Factory.DOHClient != nil {
+				s.Factory.DOHClient.SetTimeout(origDOHTimeout)
+			}
 			return result, status, (i + 1), err
 		}
 		if s.Factory.Client != nil {
@@ -473,6 +490,9 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 		}
 		if s.Factory.TCPClient != nil {
 			s.Factory.TCPClient.Timeout = 2 * s.Factory.TCPClient.Timeout
+		}
+		if s.Factory.DOHClient != nil {
+			s.Factory.DOHClient.SetTimeout(2 * s.Factory.DOHClient.Timeout)
 		}
 	}
 	panic("loop must return")
