@@ -16,6 +16,7 @@ package zdns
 
 import (
 	"net"
+	"net/http"
 	"time"
 
 	"github.com/zmap/dns"
@@ -58,6 +59,9 @@ type GlobalConf struct {
 
 	InputHandler  InputHandler
 	OutputHandler OutputHandler
+
+	// Extension
+	HTTPClient *http.Client
 
 	InputFilePath    string
 	OutputFilePath   string

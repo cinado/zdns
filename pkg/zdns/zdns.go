@@ -16,6 +16,7 @@ package zdns
 
 import (
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"github.com/zmap/dns"
 	"github.com/zmap/zdns/internal/util"
 	"github.com/zmap/zdns/iohandlers"
+	"github.com/zmap/zdns/pkg/doh"
 )
 
 func Run(gc GlobalConf, flags *pflag.FlagSet,
@@ -271,6 +273,12 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 	// setup i/o
 	gc.InputHandler = iohandlers.NewFileInputHandler(gc.InputFilePath)
 	gc.OutputHandler = iohandlers.NewFileOutputHandler(gc.OutputFilePath)
+
+	// setup DoHClient
+	if gc.DOHEnabled {
+		gc.HTTPClient = new(http.Client)
+		gc.HTTPClient = doh.CreateHTTPClient(gc.Timeout)
+	}
 
 	// allow the factory to initialize itself
 	if err := factory.Initialize(&gc); err != nil {

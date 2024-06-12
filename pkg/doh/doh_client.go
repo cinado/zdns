@@ -9,10 +9,15 @@ import (
 	"net/url"
 	"time"
 
+	"sync"
+
 	"github.com/zmap/dns"
 )
 
 const dohMediaType string = "application/dns-message"
+
+var lock = &sync.Mutex{}
+var httpClientInstance *http.Client
 
 type DOHClient struct {
 	httpClient     *http.Client
@@ -21,29 +26,38 @@ type DOHClient struct {
 	RetriedRequest bool
 }
 
-// DOH client must be initialized before using it
-func (d *DOHClient) Initialize(timeout time.Duration) {
-	d.Timeout = timeout
-	d.RetriedRequest = false
-	d.httpClient = &http.Client{
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   timeout,
-				KeepAlive: 10 * time.Second,
-			}).DialContext,
-			TLSHandshakeTimeout: timeout,
-			DisableKeepAlives:   false,
-			MaxIdleConns:        200,
-			MaxIdleConnsPerHost: 200,
-			MaxConnsPerHost:     200,
-		},
-		Timeout: timeout,
+func CreateHTTPClient(timeout time.Duration) *http.Client {
+	if httpClientInstance == nil {
+		lock.Lock()
+		defer lock.Unlock()
+		if httpClientInstance == nil {
+			httpClientInstance = &http.Client{
+				Transport: &http.Transport{
+					DialContext: (&net.Dialer{
+						Timeout:   timeout,
+						KeepAlive: 0,
+					}).DialContext,
+					TLSHandshakeTimeout: timeout,
+					DisableKeepAlives:   false,
+					MaxIdleConns:        0,
+					MaxIdleConnsPerHost: 100,
+					MaxConnsPerHost:     100,
+					ForceAttemptHTTP2:   true,
+				},
+				Timeout: timeout,
+			}
+		}
 	}
+	return httpClientInstance
+}
+
+func (d *DOHClient) SetHTTPClient(httpClient *http.Client) {
+	d.httpClient = httpClient
 }
 
 func (d *DOHClient) SetTimeout(timeout time.Duration) {
 	d.Timeout = timeout
-	d.httpClient.Timeout = timeout
+	d.RetriedRequest = false
 }
 
 // Supply set_endpoint with resolver hostname, path is set for POST requests
@@ -86,7 +100,7 @@ func (d *DOHClient) ExchangeDOH(message *dns.Msg, address string) (r *dns.Msg, r
 		return nil, 0, err
 	}
 
-	defer response.Body.Close()
+	defer closeHTTPBody(response.Body)
 
 	switch {
 	case response.StatusCode != http.StatusOK:
@@ -108,4 +122,9 @@ func (d *DOHClient) ExchangeDOH(message *dns.Msg, address string) (r *dns.Msg, r
 	}
 
 	return responseMessage, roundTripTime, nil
+}
+
+func closeHTTPBody(r io.ReadCloser) error {
+	io.Copy(io.Discard, r)
+	return r.Close()
 }

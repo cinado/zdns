@@ -214,7 +214,8 @@ func (s *RoutineLookupFactory) Initialize(c *zdns.GlobalConf) {
 	// START OF EXTENSION
 	if c.DOHEnabled {
 		s.DOHClient = new(doh.DOHClient)
-		s.DOHClient.Initialize(s.Timeout)
+		s.DOHClient.SetHTTPClient(c.HTTPClient)
+		s.DOHClient.SetTimeout(c.Timeout)
 	}
 	// END OF EXTENSION
 	if !c.TCPOnly {
@@ -461,15 +462,11 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 	s.VerboseLog(1, "****WIRE LOOKUP*** ", dns.TypeToString[q.Type], " ", q.Name, " ", nameServer)
 
 	var origTimeout time.Duration
-	var origDOHTimeout time.Duration
 
 	if s.Factory.Client != nil {
 		origTimeout = s.Factory.Client.Timeout
 	} else {
 		origTimeout = s.Factory.TCPClient.Timeout
-	}
-	if s.Factory.DOHClient != nil {
-		origDOHTimeout = s.Factory.DOHClient.Timeout
 	}
 	for i := 0; i <= s.Factory.Retries; i++ {
 		result, status, err := s.doLookup(q, nameServer, recursive)
@@ -480,9 +477,6 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 			if s.Factory.TCPClient != nil {
 				s.Factory.TCPClient.Timeout = origTimeout
 			}
-			if s.Factory.DOHClient != nil {
-				s.Factory.DOHClient.SetTimeout(origDOHTimeout)
-			}
 			return result, status, (i + 1), err
 		}
 		if s.Factory.Client != nil {
@@ -490,9 +484,6 @@ func (s *Lookup) retryingLookup(q Question, nameServer string, recursive bool) (
 		}
 		if s.Factory.TCPClient != nil {
 			s.Factory.TCPClient.Timeout = 2 * s.Factory.TCPClient.Timeout
-		}
-		if s.Factory.DOHClient != nil {
-			s.Factory.DOHClient.SetTimeout(2 * s.Factory.DOHClient.Timeout)
 		}
 	}
 	panic("loop must return")
