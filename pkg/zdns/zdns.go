@@ -133,7 +133,7 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 			ns = strings.Split(*servers_string, ",")
 		}
 		// Extension
-		if !gc.DOHEnabled {
+		if !(gc.DOHOnly || gc.DOH3Only) {
 			for i, s := range ns {
 				nsWithPort, err := util.AddDefaultPortToDNSServerName(s)
 				if err != nil {
@@ -244,8 +244,14 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 		log.Fatal("TCP Only and UDP Only are conflicting")
 	}
 	// EXTENSION
-	if (gc.DOHEnabled && gc.UDPOnly) || (gc.DOHEnabled && gc.TCPOnly) {
-		log.Fatal("DOH Enabled can't be used together with TCP Only or UDP Only")
+	if (gc.DOHOnly && gc.UDPOnly) || (gc.DOHOnly && gc.TCPOnly) {
+		log.Fatal("DOH Only can't be used together with TCP Only or UDP Only")
+	}
+	if (gc.DOH3Only && gc.UDPOnly) || (gc.DOH3Only && gc.TCPOnly) {
+		log.Fatal("DOH3 Only can't be used together with TCP Only or UDP Only")
+	}
+	if gc.DOHOnly && gc.DOH3Only {
+		log.Fatal("DOH Only can't be used together with DOH3 Only")
 	}
 	if gc.NameServerMode && gc.AlexaFormat {
 		log.Fatal("Alexa mode is incompatible with name server mode")
@@ -275,9 +281,9 @@ func Run(gc GlobalConf, flags *pflag.FlagSet,
 	gc.OutputHandler = iohandlers.NewFileOutputHandler(gc.OutputFilePath)
 
 	// setup DoHClient
-	if gc.DOHEnabled {
+	if gc.DOHOnly || gc.DOH3Only {
 		gc.HTTPClient = new(http.Client)
-		gc.HTTPClient = doh.CreateHTTPClient(gc.Timeout)
+		gc.HTTPClient = doh.CreateHTTPClient(gc.Timeout, gc.DOH3Only)
 	}
 
 	// allow the factory to initialize itself

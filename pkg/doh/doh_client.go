@@ -2,6 +2,7 @@ package doh
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -9,14 +10,13 @@ import (
 	"net/url"
 	"time"
 
-	"sync"
-
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 	"github.com/zmap/dns"
 )
 
 const dohMediaType string = "application/dns-message"
 
-var lock = &sync.Mutex{}
 var httpClientInstance *http.Client
 
 type DOHClient struct {
@@ -24,28 +24,46 @@ type DOHClient struct {
 	endpoint       url.URL
 	Timeout        time.Duration
 	RetriedRequest bool
+	Protocol       string
 }
 
-func CreateHTTPClient(timeout time.Duration) *http.Client {
+func CreateHTTPClient(timeout time.Duration, http3Preferred bool) *http.Client {
 	if httpClientInstance == nil {
-		lock.Lock()
-		defer lock.Unlock()
-		if httpClientInstance == nil {
-			httpClientInstance = &http.Client{
-				Transport: &http.Transport{
-					DialContext: (&net.Dialer{
-						Timeout:   timeout,
-						KeepAlive: 0,
-					}).DialContext,
-					TLSHandshakeTimeout: timeout,
-					DisableKeepAlives:   false,
-					MaxIdleConns:        0,
-					MaxIdleConnsPerHost: 100,
-					MaxConnsPerHost:     100,
-					ForceAttemptHTTP2:   true,
+
+		var customTransport http.RoundTripper
+
+		if http3Preferred {
+			customTransport = &http3.RoundTripper{
+				TLSClientConfig: &tls.Config{
+					NextProtos: []string{"h3"},
 				},
-				Timeout: timeout,
+				QUICConfig: &quic.Config{
+					HandshakeIdleTimeout:  timeout,
+					MaxIncomingStreams:    100,
+					MaxIncomingUniStreams: 100,
+					KeepAlivePeriod:       30 * time.Second,
+					EnableDatagrams:       false,
+					Allow0RTT:             true,
+				},
 			}
+		} else {
+			customTransport = &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   timeout,
+					KeepAlive: 0,
+				}).DialContext,
+				TLSHandshakeTimeout: timeout,
+				DisableKeepAlives:   false,
+				MaxIdleConns:        0,
+				MaxIdleConnsPerHost: 100,
+				MaxConnsPerHost:     100,
+				ForceAttemptHTTP2:   true,
+			}
+		}
+
+		httpClientInstance = &http.Client{
+			Transport: customTransport,
+			Timeout:   timeout,
 		}
 	}
 	return httpClientInstance

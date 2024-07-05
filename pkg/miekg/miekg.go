@@ -212,10 +212,15 @@ func (s *RoutineLookupFactory) Initialize(c *zdns.GlobalConf) {
 	}
 	s.LocalAddr = s.Factory.RandomLocalAddr()
 	// START OF EXTENSION
-	if c.DOHEnabled {
+	if c.DOHOnly || c.DOH3Only {
 		s.DOHClient = new(doh.DOHClient)
 		s.DOHClient.SetHTTPClient(c.HTTPClient)
 		s.DOHClient.SetTimeout(c.Timeout)
+		if c.DOHOnly {
+			s.DOHClient.Protocol = "doh"
+		} else {
+			s.DOHClient.Protocol = "doh3"
+		}
 	}
 	// END OF EXTENSION
 	if !c.TCPOnly {
@@ -349,7 +354,7 @@ func DoLookupWorker(udp *dns.Client, tcp *dns.Client, doh *doh.DOHClient, conn *
 
 	// doh client will only be created if flag is set to true
 	if doh != nil {
-		res.Protocol = "doh"
+		res.Protocol = doh.Protocol
 		r, _, err = doh.ExchangeDOH(m, nameServer)
 		if r != nil && (r.Truncated || r.Rcode == dns.RcodeBadTrunc) {
 			if !doh.RetriedRequest {

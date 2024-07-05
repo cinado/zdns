@@ -48,7 +48,8 @@ type GlobalConf struct {
 	TCPOnly              bool
 	UDPOnly              bool
 	// EXTENSION
-	DOHEnabled         bool
+	DOHOnly            bool
+	DOH3Only           bool
 	RecycleSockets     bool
 	LocalAddrSpecified bool
 	LocalAddrs         []net.IP
